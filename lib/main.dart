@@ -1,48 +1,20 @@
 import 'dart:io';
-import 'dart:math';
 import 'package:awesome_icons/awesome_icons.dart';
+import 'package:file_manager/file_server.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_app_file/open_app_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as path;
 import 'package:intl/intl.dart';
-import 'package:tftp/tftp.dart';
+import 'helpers.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await Permission.manageExternalStorage.request();
   await Permission.storage.request();
-
+  startServer();
   runApp(const ProviderScope(child: App()));
-}
-
-extension DirectoryHelper on Directory {
-  /// Recursively copies a directory + subdirectories into a target directory.
-  /// Similar to Copy-Item in PowerShell.
-  void copyTo(
-    final Directory destination, {
-    final List<String> ignoreDirList = const [],
-    final List<String> ignoreFileList = const [],
-  }) =>
-      listSync().forEach((final entity) {
-        if (entity is Directory) {
-          if (ignoreDirList.contains(path.basename(entity.path))) {
-            return;
-          }
-          final newDirectory = Directory(
-            path.join(destination.absolute.path, path.basename(entity.path)),
-          )..createSync();
-          entity.absolute.copyTo(newDirectory);
-        } else if (entity is File) {
-          if (ignoreFileList.contains(path.basename(entity.path))) {
-            return;
-          }
-          entity.copySync(
-            path.join(destination.path, path.basename(entity.path)),
-          );
-        }
-      });
 }
 
 class App extends StatelessWidget {
@@ -89,16 +61,20 @@ class _DirectoryViewState extends State<DirectoryView> {
             backgroundColor: Colors.grey.shade900,
             appBar: AppBar(
                 elevation: 0,
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.directory.path=="/storage/emulated/0"?"Dahili depolama": path.basename(widget.directory.path)),
-                    Text(
-                      widget.directory.path,
-                      style: Theme.of(context).textTheme.labelMedium,
-                    )
-                  ],
-                ),
+                title: selectedItems.isEmpty
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.directory.path == "/storage/emulated/0"
+                              ? "Dahili depolama"
+                              : path.basename(widget.directory.path)),
+                          Text(
+                            widget.directory.path,
+                            style: Theme.of(context).textTheme.labelMedium,
+                          )
+                        ],
+                      )
+                    : null,
                 actions: [
                   if (selectedItems.isNotEmpty) ...[
                     IconButton(
@@ -193,9 +169,9 @@ class _DirectoryViewState extends State<DirectoryView> {
                     IconButton(
                         onPressed: () async {
                           if (copyItems.isNotEmpty) {
-                            for (String item in copyItems) {
-                              Directory(item).copyTo(widget.directory);
-                            }
+                            // for (String item in copyItems) {
+                            //   Directory(item).copyTo(widget.directory);
+                            // }
                           } else if (moveItems.isNotEmpty) {
                             for (var item in [...copyItems, ...moveItems]) {
                               await Directory(item).rename(
@@ -343,27 +319,13 @@ class _DirectoryViewState extends State<DirectoryView> {
                                   ));
                         },
                       ),
-                      PopupMenuItem(
-                        child: const Text("Start server"),
-                        onTap: () async {
-                          var server =
-                              await TFtpServer.bind("0.0.0.0", port: 6699);
-                          server.listen((socket) {
-                            socket.listen(onRead: (file, onProcess) {
-                              print("read file from server:$file");
-                              onProcess(progressCallback: (count, total) {
-                                print("read:${count / total}%");
-                              });
-                              return "/sdcard/$file"; // server will read file from return value
-                            }, onWrite: (file, doTransform) {
-                              doTransform();
-                              //infoController.add("write file to server:$file");
-                              return "/sdcard/$file"; // server will write file to return value
-                            }, onError: (code, msg) {
-                              // infoController.add("Error[$code]:$msg");
-                            });
-                          });
-                        },
+                      const PopupMenuItem(
+                        onTap: startServer,
+                        child: Text("Start server"),
+                      ),
+                      const PopupMenuItem(
+                        onTap: stopServer,
+                        child: Text("Stop server"),
                       )
                     ],
                   )
@@ -467,11 +429,4 @@ class _DirectoryViewState extends State<DirectoryView> {
       ),
     );
   }
-}
-
-String formatBytes(int bytes, int decimals) {
-  if (bytes <= 0) return "0 B";
-  const suffixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-  var i = (log(bytes) / log(1024)).floor();
-  return '${(bytes / pow(1024, i)).toStringAsFixed(decimals)} ${suffixes[i]}';
 }
